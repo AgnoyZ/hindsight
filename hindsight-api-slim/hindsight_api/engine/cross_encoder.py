@@ -28,6 +28,7 @@ from ..config import (
     DEFAULT_RERANKER_LOCAL_MAX_CONCURRENT,
     DEFAULT_RERANKER_LOCAL_MODEL,
     DEFAULT_RERANKER_LOCAL_TRUST_REMOTE_CODE,
+    DEFAULT_RERANKER_OPENAI_MODEL,
     DEFAULT_RERANKER_PROVIDER,
     DEFAULT_RERANKER_TEI_BATCH_SIZE,
     DEFAULT_RERANKER_TEI_MAX_CONCURRENT,
@@ -41,6 +42,9 @@ from ..config import (
     ENV_RERANKER_LOCAL_MAX_CONCURRENT,
     ENV_RERANKER_LOCAL_MODEL,
     ENV_RERANKER_LOCAL_TRUST_REMOTE_CODE,
+    ENV_RERANKER_OPENAI_API_KEY,
+    ENV_RERANKER_OPENAI_BASE_URL,
+    ENV_RERANKER_OPENAI_MODEL,
     ENV_RERANKER_PROVIDER,
     ENV_RERANKER_TEI_BATCH_SIZE,
     ENV_RERANKER_TEI_MAX_CONCURRENT,
@@ -792,6 +796,84 @@ class RRFPassthroughCrossEncoder(CrossEncoderModel):
         return [0.5] * len(pairs)
 
 
+class OpenAICompatibleCrossEncoder(CrossEncoderModel):
+    """
+    OpenAI-compatible reranker using a /rerank endpoint.
+
+    This supports providers that expose a Cohere-style rerank API behind an
+    OpenAI-compatible base URL (for example SiliconFlow).
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = DEFAULT_RERANKER_OPENAI_MODEL,
+        base_url: str | None = None,
+        timeout: float = 60.0,
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+        self.timeout = timeout
+        self._async_client: httpx.AsyncClient | None = None
+
+    @property
+    def provider_name(self) -> str:
+        return "openai"
+
+    async def initialize(self) -> None:
+        """Initialize async client for OpenAI-compatible /rerank requests."""
+        if self._async_client is not None:
+            return
+
+        logger.info(f"Reranker: initializing OpenAI-compatible provider at {self.base_url} with model {self.model}")
+        self._async_client = httpx.AsyncClient(
+            timeout=self.timeout,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        logger.info("Reranker: OpenAI-compatible provider initialized")
+
+    async def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
+        if self._async_client is None:
+            raise RuntimeError("Reranker not initialized. Call initialize() first.")
+
+        if not pairs:
+            return []
+
+        query_groups: dict[str, list[tuple[int, str]]] = {}
+        for idx, (query, text) in enumerate(pairs):
+            if query not in query_groups:
+                query_groups[query] = []
+            query_groups[query].append((idx, text))
+
+        all_scores = [0.0] * len(pairs)
+        for query, indexed_texts in query_groups.items():
+            texts = [text for _, text in indexed_texts]
+            indices = [idx for idx, _ in indexed_texts]
+
+            response = await self._async_client.post(
+                f"{self.base_url}/rerank",
+                json={
+                    "model": self.model,
+                    "query": query,
+                    "documents": texts,
+                    "top_n": len(texts),
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            for item in result.get("results", []):
+                original_idx = item["index"]
+                score = item.get("relevance_score", item.get("score", 0.0))
+                all_scores[indices[original_idx]] = score
+
+        return all_scores
+
+
 class FlashRankCrossEncoder(CrossEncoderModel):
     """
     FlashRank cross-encoder implementation.
@@ -1299,6 +1381,15 @@ def create_cross_encoder_from_env() -> CrossEncoderModel:
             bucket_batching=config.reranker_local_bucket_batching,
             batch_size=config.reranker_local_batch_size,
         )
+    elif provider == "openai":
+        api_key = config.reranker_openai_api_key
+        if not api_key:
+            raise ValueError(f"{ENV_RERANKER_OPENAI_API_KEY} is required when {ENV_RERANKER_PROVIDER} is 'openai'")
+        return OpenAICompatibleCrossEncoder(
+            api_key=api_key,
+            model=config.reranker_openai_model,
+            base_url=config.reranker_openai_base_url,
+        )
     elif provider == "cohere":
         api_key = config.reranker_cohere_api_key
         if not api_key:
@@ -1347,5 +1438,5 @@ def create_cross_encoder_from_env() -> CrossEncoderModel:
         return JinaMLXCrossEncoder()
     else:
         raise ValueError(
-            f"Unknown reranker provider: {provider}. Supported: 'local', 'tei', 'cohere', 'zeroentropy', 'flashrank', 'litellm', 'litellm-sdk', 'rrf', 'jina-mlx'"
+            f"Unknown reranker provider: {provider}. Supported: 'local', 'tei', 'openai', 'cohere', 'zeroentropy', 'flashrank', 'litellm', 'litellm-sdk', 'rrf', 'jina-mlx'"
         )

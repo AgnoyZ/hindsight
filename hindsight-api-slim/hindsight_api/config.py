@@ -222,6 +222,9 @@ ENV_RERANKER_LOCAL_BATCH_SIZE = "HINDSIGHT_API_RERANKER_LOCAL_BATCH_SIZE"
 ENV_RERANKER_TEI_URL = "HINDSIGHT_API_RERANKER_TEI_URL"
 ENV_RERANKER_TEI_BATCH_SIZE = "HINDSIGHT_API_RERANKER_TEI_BATCH_SIZE"
 ENV_RERANKER_TEI_MAX_CONCURRENT = "HINDSIGHT_API_RERANKER_TEI_MAX_CONCURRENT"
+ENV_RERANKER_OPENAI_API_KEY = "HINDSIGHT_API_RERANKER_OPENAI_API_KEY"
+ENV_RERANKER_OPENAI_MODEL = "HINDSIGHT_API_RERANKER_OPENAI_MODEL"
+ENV_RERANKER_OPENAI_BASE_URL = "HINDSIGHT_API_RERANKER_OPENAI_BASE_URL"
 ENV_RERANKER_MAX_CANDIDATES = "HINDSIGHT_API_RERANKER_MAX_CANDIDATES"
 ENV_RERANKER_FLASHRANK_MODEL = "HINDSIGHT_API_RERANKER_FLASHRANK_MODEL"
 ENV_RERANKER_FLASHRANK_CACHE_DIR = "HINDSIGHT_API_RERANKER_FLASHRANK_CACHE_DIR"
@@ -417,6 +420,7 @@ DEFAULT_RERANKER_LOCAL_BUCKET_BATCHING = False  # Length-sorted bucket batching:
 DEFAULT_RERANKER_LOCAL_BATCH_SIZE = 32  # Batch size for local reranker predict() calls
 DEFAULT_RERANKER_TEI_BATCH_SIZE = 128
 DEFAULT_RERANKER_TEI_MAX_CONCURRENT = 8
+DEFAULT_RERANKER_OPENAI_MODEL = "BAAI/bge-reranker-v2-m3"
 DEFAULT_RERANKER_MAX_CANDIDATES = 300
 DEFAULT_RERANKER_FLASHRANK_MODEL = "ms-marco-MiniLM-L-12-v2"  # Best balance of speed and quality
 DEFAULT_RERANKER_FLASHRANK_CACHE_DIR = None  # Use default cache directory
@@ -719,6 +723,9 @@ class HindsightConfig:
     reranker_tei_url: str | None
     reranker_tei_batch_size: int
     reranker_tei_max_concurrent: int
+    reranker_openai_api_key: str | None
+    reranker_openai_model: str
+    reranker_openai_base_url: str | None
     reranker_max_candidates: int
     reranker_cohere_api_key: str | None
     reranker_cohere_model: str
@@ -878,6 +885,7 @@ class HindsightConfig:
         "consolidation_llm_base_url",
         "embeddings_tei_base_url",
         "reranker_tei_base_url",
+        "reranker_openai_base_url",
         "reranker_cohere_base_url",
         "reranker_zeroentropy_base_url",
         # Service Account Keys
@@ -1188,6 +1196,9 @@ class HindsightConfig:
             reranker_tei_max_concurrent=int(
                 os.getenv(ENV_RERANKER_TEI_MAX_CONCURRENT, str(DEFAULT_RERANKER_TEI_MAX_CONCURRENT))
             ),
+            reranker_openai_api_key=os.getenv(ENV_RERANKER_OPENAI_API_KEY) or os.getenv(ENV_OPENAI_API_KEY),
+            reranker_openai_model=os.getenv(ENV_RERANKER_OPENAI_MODEL, DEFAULT_RERANKER_OPENAI_MODEL),
+            reranker_openai_base_url=os.getenv(ENV_RERANKER_OPENAI_BASE_URL) or None,
             reranker_max_candidates=int(os.getenv(ENV_RERANKER_MAX_CANDIDATES, str(DEFAULT_RERANKER_MAX_CANDIDATES))),
             # Cohere reranker (with backward-compatible fallback to shared API key)
             reranker_cohere_api_key=os.getenv(ENV_RERANKER_COHERE_API_KEY) or os.getenv(ENV_COHERE_API_KEY),
